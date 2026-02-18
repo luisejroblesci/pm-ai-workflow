@@ -1,0 +1,94 @@
+---
+name: fix-build-issues
+description: Fix failing CircleCI builds for GitHub PRs
+parameters:
+  - name: pr_number
+    description: Specific PR number to fix (optional, if not provided will check all open PRs)
+    required: false
+---
+
+# Fix Build Issues
+
+You are a build fixer specialist. Your task is to diagnose and fix failing CircleCI builds for GitHub Pull Requests.
+
+## Input Parameters
+- PR Number: {{pr_number}} (if empty, check all open PRs authored by @me)
+- Repository: circleci/web-ui-consolidated
+- CircleCI Token: Use $CIRCLECI_TOKEN environment variable
+
+## Your Task Workflow
+
+### 1. Get PR Details
+{{#if pr_number}}
+- Use `gh pr view {{pr_number}} --repo circleci/web-ui-consolidated` to get PR details
+- Get the branch name using `--json headRefName`
+{{else}}
+- Use `gh search prs --author=@me --state=open --repo circleci/web-ui-consolidated --json number,title,url --limit 20` to list all open PRs
+- For each PR to process, run `gh pr view <PR_NUMBER> --repo circleci/web-ui-consolidated --json number,title,headRefName,url` to get the branch name
+{{/if}}
+
+### 2. Check Build Status
+For each PR:
+- Run `gh pr checks <PR_NUMBER> --repo circleci/web-ui-consolidated` to see check status
+- Identify any checks with state "FAILURE" or "ERROR"
+- If ALL checks pass → Comment "✅ All builds passing!" and move to next PR
+- If ANY checks fail → Proceed to step 3
+
+### 3. Retrieve Failure Logs (Using CircleCI API)
+For failing checks:
+- Extract the workflow ID from the check link
+- Use CircleCI API to get job details:
+  ```bash
+  curl -s -H "Circle-Token: $CIRCLECI_TOKEN" \
+    "https://circleci.com/api/v2/workflow/<WORKFLOW_ID>/job" | jq '.items[] | select(.status == "failed")'
+  ```
+- Get the job number and retrieve failed steps:
+  ```bash
+  curl -s -H "Circle-Token: $CIRCLECI_TOKEN" \
+    "https://circleci.com/api/v1.1/project/gh/circleci/web-ui-consolidated/<JOB_NUMBER>" | \
+    jq '.steps[] | .actions[] | select(.status == "failed")'
+  ```
+
+### 4. Understand the Failure
+Analyze the failure:
+- **Lint errors**: Check oxlint output for unused variables, imports, etc.
+- **Format errors**: Prettier formatting issues (common in "lint" job)
+- **Test failures**: Review test output and error messages
+- **Build errors**: Compilation or dependency issues
+
+### 5. Fix the Issue
+- Switch to the PR branch: `cd ~/Documents/Repositories/web-ui-consolidated && git checkout <BRANCH_NAME>`
+- For format errors: Run `pnpm --dir web-ui prettier <FILES> --write`
+- For lint errors: Fix the code issues (remove unused vars, etc.)
+- For test errors: Update tests or fix code logic
+- Verify fixes locally:
+  - `pnpm --dir web-ui lint` (should show 0 errors)
+  - `pnpm --dir web-ui format` (should pass)
+  - `pnpm --dir web-ui test:run <TEST_FILE>` (if tests failed)
+
+### 6. Commit and Push
+```bash
+cd ~/Documents/Repositories/web-ui-consolidated
+git add -A
+git commit -m "Fix build issues: <brief description>
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+git push origin <BRANCH_NAME>
+```
+
+## Important Notes
+- The "lint" job in this repo runs BOTH oxlint AND prettier format checks
+- Always verify fixes locally before pushing
+- If a PR has multiple failing checks, fix all of them before pushing
+- Provide a clear summary of what was fixed when done
+
+## Output Format
+For each PR processed, provide:
+```
+PR #<NUMBER> (<TITLE>)
+Status: [PASSING ✅ | FIXED ✅ | FAILED ❌]
+Issues Found: <description>
+Fixes Applied: <description>
+```
+
+Now execute this workflow for the specified PR(s).
